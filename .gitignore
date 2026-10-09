@@ -1,0 +1,15 @@
+node_modules/
+.DS_Store
+Thumbs.db
+.env
+.env.*
+!.env.example
+.archify/
+*.log
+*.backup-*.json
+*.editor-*.json
+*.delivery.json
+*.finalize.json
+*.browser-check.json
+coverage/
+test-results/

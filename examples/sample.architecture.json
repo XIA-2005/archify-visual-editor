@@ -1,0 +1,22 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "Example Application Architecture",
+    "locale": "en",
+    "quality_profile": "showcase",
+    "output": "examples/sample.html"
+  },
+  "components": [
+    { "id": "client", "type": "frontend", "label": "Web Client", "sublabel": "Browser UI", "pos": [50, 180], "size": [165, 86] },
+    { "id": "gateway", "type": "backend", "label": "API Gateway", "sublabel": "Routing and auth", "pos": [340, 180], "size": [175, 86] },
+    { "id": "store", "type": "database", "label": "Data Store", "sublabel": "Persistent state", "pos": [650, 180], "size": [175, 86] }
+  ],
+  "connections": [
+    { "id": "client_api", "from": "client", "to": "gateway", "label": "HTTPS request", "variant": "emphasis" },
+    { "id": "api_db", "from": "gateway", "to": "store", "label": "Read / write", "variant": "default" }
+  ],
+  "cards": [
+    { "dot": "cyan", "title": "Demo", "items": ["A small example with editable component and connection labels."] }
+  ]
+}
