@@ -28,6 +28,15 @@ Archify HTML. After node dragging, the editor requests new official routes, rath
 than approximating with diagonal arrows. If routing fails, it refuses to show a
 misleading fallback route.
 
+## What's new in v0.2 — Manual layout
+
+- **Canvas bounds**: moving a node above or left of the zero-origin canvas clamps it to a valid positive position; right/bottom overflow expands `meta.viewBox` when necessary. In-range layouts keep the original dimensions and edge routes.
+- **Multi-select, alignment & distribution**: Ctrl-click several nodes, then use left/right/top/bottom alignment, horizontal/vertical centering, or even spacing for three or more nodes. Optional 24px grid snapping.
+- **Manual routing**: choose each edge's departure/arrival side, auto/straight/orthogonal route, edit `via` points or `labelAt`, and drag orange waypoint handles directly. Reset an edge to automatic routing when desired.
+- **No vanishing arrows**: if the renderer rejects an intermediate manual layout, show the most recent valid paths as dimmed dashed *reference* lines, never as a falsely verified final preview.
+- **Quality options**: Showcase remains the default; Standard is available for dense layouts. Both still enforce Archify validation, so certain colliding labels or invalid waypoints must be corrected before saving.
+- **Browser UI regression test**: covers boundary correction with valid JSON/HTML output, alignment, waypoint controls and edge preservation.
+
 ## Requirements
 
 - Node.js 18+ (tested on Windows with Node.js 24)
@@ -58,6 +67,9 @@ If you copy this `editor/` folder into the installed Archify Skill next to `bin/
 
 ### Usage
 
+To align, Ctrl-click several nodes and use the alignment bar. To control a route, click an edge and edit its side/route/waypoint/label fields, or drag the orange control circles. If a provisional layout cannot be rendered, prior lines remain dim and dashed; a valid Archify result is always required before saving.
+
+
 1. Click a node to edit labels and properties in the right sidebar.
 2. Drag nodes to reposition; choose **Connect nodes** to create a connection by clicking its endpoints.
 3. Select a connection to rename, redirect, or delete it.
@@ -69,6 +81,10 @@ label placement come from Archify, while the canonical HTML retains its own styl
 exploration, and export UI.
 
 ## 中文使用说明
+
+**v0.2 新增：** Ctrl 多选节点、左/右/上/下对齐、水平/垂直居中、水平/垂直等间距分布、24px 网格吸附。可自由调整节点摆放，左上越界会被限制到合法坐标，右下越界则扩展视图。选中箭头后可设置起止边和走线模式、编辑 `via` 折点或拖动橙色圆点，也可设置标签坐标。未通过临时渲染时保留虚线参考线路，不再整张图断线；保存仍需通过原版 Archify 校验。
+
+
 
 这是一个给 **Archify 架构图增加鼠标可视化编辑能力**的独立扩展项目，并不是
 Archify 官方版本。**原版 Archify CLI 仍然需要单独安装。**

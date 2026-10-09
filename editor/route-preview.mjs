@@ -29,6 +29,7 @@ export function extractArchifyRoutes(html, expectedCount) {
     routes.set(key, {
       key, id: attr['data-edge-id'] || null, from: attr['data-edge-from'], to: attr['data-edge-to'],
       d: attr.d, strokeWidth: Number(attr['stroke-width'] || 1.5),
+      points: (attr['data-composition-points'] || '').split(';').filter(Boolean).map(pair => pair.split(',').map(Number)),
       halo: attr['data-composition-crossover'] === 'halo',
     });
   }
@@ -54,7 +55,8 @@ export function extractArchifyRoutes(html, expectedCount) {
       + '，获得 ' + routes.size + '）；拒绝显示不准确的预览');
   }
   for (const route of routes.values()) {
-    if (typeof route.d !== 'string' || !/^M[\s\d.-]/.test(route.d)
+    if (!route.points?.length || route.points.some(p => p.length !== 2 || p.some(n => !Number.isFinite(n)))
+      || typeof route.d !== 'string' || !/^M[\s\d.-]/.test(route.d)
       || !Number.isFinite(route.strokeWidth)
       || (route.labelBox && Object.values(route.labelBox).some(v => !Number.isFinite(v)))) {
       throw new Error('Archify 返回了不可用的连线路径或标签');

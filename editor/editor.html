@@ -39,6 +39,10 @@
       border-top:1px solid var(--border);font-size:13px;white-space:pre-wrap;line-height:1.5 }
     .message.error {color:#ffb7b7;background:#2b1721}.message.ok {color:#8de4bd;background:#113328}
     .selection {border:1px solid var(--border);padding:12px;border-radius:10px;background:#0b1627}
+    .align-tools {display:flex;flex-wrap:wrap;align-items:center;gap:5px;padding:5px 0}
+    .align-tools button {font-size:12px;padding:6px 8px}
+    .align-tools button:disabled {opacity:.35}
+    .align-tools label {font-size:12px;color:var(--muted);white-space:nowrap;padding:0 8px}
     .selection button {margin-top:12px}
     .list {display:flex;flex-wrap:wrap;gap:7px}
     .help {font-size:12px;line-height:1.8;color:var(--muted)}
@@ -69,10 +73,19 @@
       <span style="flex:1"></span>
       <button id="zoom-out">－</button><button id="fit">适应画布</button><button id="zoom-in">＋</button>
     </div>
+    <div class="align-tools" aria-label="节点对齐与分布">
+      <span class="tag" id="selection-count">未选择模块</span>
+      <button data-align="left" disabled>左对齐</button><button data-align="hcenter" disabled>水平居中</button>
+      <button data-align="right" disabled>右对齐</button><button data-align="top" disabled>顶部对齐</button>
+      <button data-align="vcenter" disabled>垂直居中</button><button data-align="bottom" disabled>底部对齐</button>
+      <button data-align="distribute-h" disabled>水平等距</button><button data-align="distribute-v" disabled>垂直等距</button>
+      <label><input type="checkbox" id="snap-grid"> 24px 网格吸附</label>
+    </div>
     <div class="stage"><svg id="diagram" role="img" aria-label="可编辑架构图预览"></svg></div>
     <div class="hint">鼠标拖动模块调整位置；点击模块或连线编辑属性；点击“连接节点”再依次点击源节点、目标节点。
       滚轮缩放；Shift + 拖动空白处平移。连线路径与标签位置由 Archify 正式渲染器计算；
-      拖动时暂时隐藏旧线路，松开鼠标后自动刷新准确预览。</div>
+      Ctrl + 点击多选模块，再使用对齐工具。选中连线后可设置起止边、走线模式、折点和标签位置；
+      点击选中连线的圆形折点还能直接拖动。渲染异常时，旧线路以虚线标示为参考，不会全部消失。</div>
   </section>
   <aside>
     <h2>属性检查器</h2>
@@ -81,6 +94,7 @@
     <h3>操作说明</h3>
     <div class="help">修改暂存于浏览器会话，只有点击“保存并生成 HTML”才写入磁盘。
       保存前执行 Archify Showcase 校验；如果布局不合规，则不会覆盖原 JSON。
+      超出右/下边界会自动扩大 viewBox，左侧/顶部越界时会限制为可导出的非负坐标。自定义折点须满足 Archify 路由规则。
       正式生成通过后，原 JSON 自动备份。快捷键：Ctrl+Z 撤销，Ctrl+Y 重做，Delete 删除所选。</div>
   </aside>
 </main>
@@ -95,6 +109,7 @@
   let spec, expectedHash, selected = null, mode = 'select', linkStart = null, drag = null, camera = null;
   let renderedRoutes = null, routeSignature = null, requestedSignature = null, routeSequence = 0, previewTimer = null;
   let history = [], future = [], dirty = false, saving = false;
+  let selectedNodes = new Set();
   const clone = (value) => structuredClone(value);
   const svgEl = (tag, attrs, parent) => {
     const e = document.createElementNS(ns,tag);
@@ -124,17 +139,21 @@
   function undo() {
     if (!history.length || saving) return;
     future.push(clone(spec)); spec = history.pop();
-    selected = null; draw(); renderInspector(); updateButtons(); markDirty();
+    selected = null; selectedNodes.clear(); draw(); renderInspector(); updateButtons(); markDirty();
   }
   function redo() {
     if (!future.length || saving) return;
     history.push(clone(spec)); spec = future.pop();
-    selected = null; draw(); renderInspector(); updateButtons(); markDirty();
+    selected = null; selectedNodes.clear(); draw(); renderInspector(); updateButtons(); markDirty();
   }
   function updateButtons() {
     $('undo').disabled = !history.length || saving;
     $('redo').disabled = !future.length || saving;
-    $('delete').disabled = !selected || saving;
+    $('delete').disabled = (!selected && !selectedNodes.size) || saving;
+    text($('selection-count'), selectedNodes.size ? selectedNodes.size + ' 个模块已选（Ctrl+点击多选）' : '未选择模块');
+    document.querySelectorAll('[data-align]').forEach(btn => {
+      btn.disabled = saving || selectedNodes.size < (btn.dataset.align.startsWith('distribute') ? 3 : 2);
+    });
     $('save').disabled = saving;
     $('select').classList.toggle('active',mode === 'select');
     $('link').classList.toggle('active',mode === 'link');
@@ -142,8 +161,12 @@
   }
   const findNode = (id) => spec.components.find(n=>n.id===id);
   const findEdge = (id) => spec.connections.find((e,i)=>(e.id||'edge-'+i)===id);
-  function select(kind,id) {
-    selected = kind ? {kind,id} : null;
+  function select(kind,id,additive=false) {
+    if (kind === 'node') {
+      if (additive) { if (selectedNodes.has(id)) selectedNodes.delete(id); else selectedNodes.add(id); }
+      else if (!selectedNodes.has(id) || selectedNodes.size < 2) selectedNodes = new Set([id]);
+      selected = selectedNodes.size ? {kind:'node',id:selectedNodes.has(id)?id:[...selectedNodes][0]} : null;
+    } else { selectedNodes.clear(); selected = kind ? {kind,id} : null; }
     renderInspector(); updateButtons(); draw();
   }
   function setMode(next) {
@@ -153,6 +176,53 @@
     draw();
   }
   const boxOf = (n) => ({x:n.pos?.[0]||0,y:n.pos?.[1]||0,w:n.size?.[0]||160,h:n.size?.[1]||76});
+  const gridPos = n => $('snap-grid').checked ? Math.round(n / 24) * 24 : Math.round(n);
+  function normalizeScene() {
+    if(!spec?.components?.length)return;
+    // Archify's exported SVG origin is (0,0): negative node coordinates are not valid.
+    // Clamp only the offending item, rather than translating every node and invalidating
+    // all established label/corridor positions elsewhere in the diagram.
+    for(const n of spec.components){n.pos[0]=Math.max(16,n.pos[0]);n.pos[1]=Math.max(16,n.pos[1]);}
+    for(const e of spec.connections){
+      for(const p of e.via||[]){p[0]=Math.max(16,p[0]);p[1]=Math.max(16,p[1]);}
+      if(e.labelAt){e.labelAt[0]=Math.max(16,e.labelAt[0]);e.labelAt[1]=Math.max(16,e.labelAt[1]);}
+    }
+    const maxX=Math.max(...spec.components.map(n=>n.pos[0]+boxOf(n).w),
+      ...spec.connections.flatMap(e=>(e.via||[]).map(p=>p[0])));
+    const maxY=Math.max(...spec.components.map(n=>n.pos[1]+boxOf(n).h),
+      ...spec.connections.flatMap(e=>(e.via||[]).map(p=>p[1])));
+    const priorW=spec.meta.viewBox?.[0]||1743,priorH=spec.meta.viewBox?.[1]||958;
+    // Do not expand an already-valid canvas just because its original margin is
+    // smaller than our preferred padding: that alters routes and label placement.
+    const width=maxX>priorW-12?Math.ceil(maxX+24):priorW;
+    const height=maxY>priorH-12?Math.ceil(maxY+24):priorH;
+    if(width>(spec.meta.viewBox?.[0]||1743)||height>(spec.meta.viewBox?.[1]||958))
+      spec.meta.viewBox=[width,height];
+  }
+  function alignSelection(kind) {
+    const nodes=[...selectedNodes].map(findNode).filter(Boolean);
+    if(nodes.length<(kind.startsWith('distribute')?3:2))return;
+    checkpoint();const B=nodes.map(boxOf);
+    const left=Math.min(...B.map(b=>b.x)),right=Math.max(...B.map(b=>b.x+b.w));
+    const top=Math.min(...B.map(b=>b.y)),bottom=Math.max(...B.map(b=>b.y+b.h));
+    const midX=(left+right)/2,midY=(top+bottom)/2;
+    if(kind.startsWith('distribute')) {
+      const horizontal=kind==='distribute-h';
+      const sorted=[...nodes].sort((a,b)=>horizontal?boxOf(a).x-boxOf(b).x:boxOf(a).y-boxOf(b).y);
+      const span=horizontal?right-left:bottom-top;
+      const total=sorted.reduce((sum,n)=>sum+(horizontal?boxOf(n).w:boxOf(n).h),0);
+      let cursor=horizontal?left:top;const spacing=(span-total)/(sorted.length-1);
+      for(const n of sorted){n.pos[horizontal?0:1]=Math.round(cursor);cursor+=(horizontal?boxOf(n).w:boxOf(n).h)+spacing;}
+    }else for(const n of nodes){const b=boxOf(n);
+      if(kind==='left')n.pos[0]=left;
+      if(kind==='right')n.pos[0]=Math.round(right-b.w);
+      if(kind==='hcenter')n.pos[0]=Math.round(midX-b.w/2);
+      if(kind==='top')n.pos[1]=top;
+      if(kind==='bottom')n.pos[1]=Math.round(bottom-b.h);
+      if(kind==='vcenter')n.pos[1]=Math.round(midY-b.h/2);
+    }
+    normalizeScene();draw();renderInspector();
+  }
   function frame(reset) {
     if (!spec || (camera && !reset)) return;
     let left=Infinity,top=Infinity,right=-Infinity,bottom=-Infinity;
@@ -184,7 +254,7 @@
   // obtained from the same Archify renderer that generates the final HTML.
   const routeKey = () => JSON.stringify(spec);
   function scheduleRoutePreview() {
-    if (!spec || drag?.kind === 'node') return;
+    if (!spec || drag?.kind === 'node' || drag?.kind === 'bend') return;
     const signature = routeKey();
     if (signature === routeSignature || signature === requestedSignature) return;
     if (previewTimer) clearTimeout(previewTimer);
@@ -208,10 +278,10 @@
         if (!saving) status('Archify 正式路由已同步：'+result.edges.length+' 条连线与 HTML 使用相同路径。','ok');
       } catch(error) {
         if (seq !== routeSequence || signature !== routeKey()) return;
-        renderedRoutes = null;
+        // Keep the last successfully rendered routes as dashed guides, not exact geometry.
         routeSignature = null;
         draw();
-        if (!saving) status('无法生成准确连线预览：'+error.message+'。未使用近似直线替代；请调整图形或导出 JSON 草稿。','error');
+        if (!saving) status('此布局尚不能通过正式渲染：'+error.message+'。旧连线以虚线保留作参考，可继续编辑或撤销。','error');
       }
     },120);
   }
@@ -237,11 +307,8 @@
     }
     const signature=routeKey();
     const accurate=signature===routeSignature && renderedRoutes instanceof Map;
-    if (!accurate) {
-      renderedRoutes=null;
-      scheduleRoutePreview();
-    }
-    if (accurate) for(const [index,e] of spec.connections.entries()) {
+    if (!accurate) scheduleRoutePreview();
+    if (renderedRoutes instanceof Map) for(const [index,e] of spec.connections.entries()) {
       const route=renderedRoutes.get(index);
       // Fail closed if Archify returns an incomplete or mismatched route.
       if(!route || route.from!==e.from || route.to!==e.to) continue;
@@ -256,10 +323,17 @@
       svgEl('path',{d:route.d,stroke:selectedEdge?'#f8c56d':(emphasis?'#70deaf':'#83bfff'),
         'stroke-width':selectedEdge?route.strokeWidth+1.8:route.strokeWidth,
         fill:'none','stroke-linecap':'round','stroke-linejoin':'round',
-        'stroke-dasharray':e.variant==='dashed'?'6 5':'none',
+        'stroke-dasharray':!accurate?'8 5':(e.variant==='dashed'?'6 5':'none'),
+        opacity:accurate?1:0.52,
         'marker-end':'url(#'+(emphasis?'edit-arrow-emphasis':'edit-arrow')+')',
         'pointer-events':'none','data-rendered-route':id},group);
       const box=route.labelBox;
+      if(selectedEdge && (accurate || drag?.kind==='bend')){
+        const controls=(e.via && e.via.length ? e.via : route.points.slice(1,-1));
+        controls.forEach((p,j)=>svgEl('circle',{cx:p[0],cy:p[1],r:7,
+          'data-bend':j,'data-edge-id':id,fill:'#ffc56e',stroke:'#172b44','stroke-width':2,
+          style:'cursor:grab'},group));
+      }
       if(e.label && box) {
         svgEl('rect',{x:box.x,y:box.y,width:box.width,height:box.height,
           rx:box.rx,fill:'#10253a','pointer-events':'none'},group);
@@ -269,7 +343,7 @@
       }
     }
     for(const n of spec.components) {
-      const b=boxOf(n), chosen=selected?.kind==='node'&&selected.id===n.id;
+      const b=boxOf(n), chosen=selectedNodes.has(n.id);
       const group=svgEl('g',{'data-node-id':n.id,style:'cursor:move'},svg);
       svgEl('rect',{x:b.x,y:b.y,width:b.w,height:b.h,rx:12,fill:chosen?'#254b70':'#172b44',
         stroke:chosen?'#ffc56e':(linkStart===n.id?'#70deaf':'#477095'),
@@ -283,21 +357,29 @@
     }
     updateButtons();
   }
-  function property(name,value,onChange,type) {
+  function property(name,value,onChange,type,options) {
     const label=dom('label','field',name,panel);
     const input=dom(type==='select'?'select':type==='textarea'?'textarea':'input','',null,label);
-    if(type==='select') allowedTypes.forEach(v=>{ const o=dom('option','',v,input);o.value=v; });
+    if(type==='select') (options||allowedTypes).forEach(v=>{ const o=dom('option','',v,input);o.value=v; });
     if(type==='number') {input.type='number';input.step='1';}
     input.value=value ?? '';
-    input.addEventListener('change',()=>{ const val=type==='number'?Number(input.value):input.value;
-      if(type==='number'&&!Number.isFinite(val))return;checkpoint();onChange(val);draw();renderInspector(); });
+    input.addEventListener('change',()=>{
+      const val=type==='number'?Number(input.value):input.value;
+      if(type==='number'&&!Number.isFinite(val))return;
+      const before=clone(spec);
+      try{onChange(val);checkpoint(before);normalizeScene();draw();renderInspector();}
+      catch(error){spec=before;status('输入无效：'+error.message,'error');renderInspector();}
+    });
     return input;
   }
   function renderInspector() {
     panel.replaceChildren();cardsList.replaceChildren();
     if(!spec)return;
     property('架构图标题',spec.meta.title,(v)=>spec.meta.title=v);
+    property('输出质量（Showcase 严格 / Standard 宽画布）',spec.meta.quality_profile||'showcase',
+      v=>spec.meta.quality_profile=v,'select',['showcase','standard']);
     if(!selected) dom('p','help','选择画布中的模块或连线，右侧即可修改文字、位置与连接关系。',panel);
+    if(selectedNodes.size>1)dom('p','help','已多选 '+selectedNodes.size+' 个模块：上方可进行对齐和等距分布。',panel);
     if(selected?.kind==='node') {
       const n=findNode(selected.id);
       if(n){
@@ -316,6 +398,39 @@
       if(e){
         dom('h3','', '连接：'+(e.id||selected.id),panel);
         property('连线文字',e.label||'',v=>e.label=v);
+        property('路由模式',e.route||'auto',v=>e.route=v,'select',
+          ['auto','straight','orthogonal-h','orthogonal-v']);
+        const sides=['auto','left','right','top','bottom'];
+        property('起点方向',e.fromSide||'auto',v=>v==='auto'?delete e.fromSide:e.fromSide=v,'select',sides);
+        property('终点方向',e.toSide||'auto',v=>v==='auto'?delete e.toSide:e.toSide=v,'select',sides);
+        const parsePairs=v=>v.trim()?v.split(/\r?\n/).filter(Boolean).map(line=>{
+          const pair=line.split(/[,，\s]+/).filter(Boolean).map(Number);
+          if(pair.length!==2 || pair.some(x=>!Number.isFinite(x)))
+            throw Error('坐标格式应为 x,y，每行一组');
+          return pair;
+        }):[];
+        property('折点 via（每行 x,y；可直接拖动圆点）',(e.via||[]).map(p=>p.join(', ')).join('\n'),v=>{
+          const pts=parsePairs(v);if(pts.length)e.via=pts;else delete e.via;
+        },'textarea');
+        property('标签位置 labelAt（x,y；留空自动）',e.labelAt?.join(', ')||'',v=>{
+          const pts=parsePairs(v);if(pts.length>1)throw Error('标签只能有一组 x,y');
+          if(pts.length)e.labelAt=pts[0];else delete e.labelAt;
+        });
+        const addPoint=dom('button','', '＋ 在连线上新增控制点',panel);
+        addPoint.addEventListener('click',()=>{
+          const idx=spec.connections.indexOf(e),route=renderedRoutes?.get(idx);
+          if(!route?.points?.length){status('请先生成准确连线路由，再添加控制点','error');return;}
+          checkpoint();const points=(e.via && e.via.length?clone(e.via):route.points.slice(1,-1));
+          const mids=route.points.slice(0,-1).map((p,i)=>({i,from:p,to:route.points[i+1],
+            len:Math.hypot(route.points[i+1][0]-p[0],route.points[i+1][1]-p[1])}));
+          const longest=mids.sort((a,b)=>b.len-a.len)[0];
+          if(longest){const mid=[Math.round((longest.from[0]+longest.to[0])/2),
+            Math.round((longest.from[1]+longest.to[1])/2)];points.push(mid);}
+          e.via=points;normalizeScene();draw();renderInspector();
+        });
+        const reset=dom('button','', '恢复自动布线（清除折点/边约束）',panel);
+        reset.addEventListener('click',()=>{checkpoint();delete e.fromSide;delete e.toSide;
+          delete e.via;delete e.labelAt;e.route='auto';draw();renderInspector();});
         ['from','to'].forEach(key=>{
           const label=dom('label','field',key==='from'?'起点':'终点',panel);
           const input=dom('select','',null,label);
@@ -366,11 +481,24 @@
     } else if(selected.kind==='edge') {
       spec.connections=spec.connections.filter((e,i)=>(e.id||'edge-'+i)!==selected.id);
     } else if(selected.kind==='card') spec.cards.splice(selected.id,1);
-    selected=null;draw();renderInspector();
+    selected=null;selectedNodes.clear();draw();renderInspector();
   }
   svg.addEventListener('pointerdown',(event)=>{
     if(!spec||saving||event.button!==0&&event.button!==1)return;
     const node=event.target.closest('[data-node-id]'),edge=event.target.closest('[data-edge-id]');
+    const bend=event.target.closest('[data-bend]');
+    if(bend){
+      const edgeId=bend.dataset.edgeId,idx=Number(bend.dataset.bend);
+      const e=findEdge(edgeId),key=spec.connections.indexOf(e),route=renderedRoutes?.get(key);
+      if(!e||!route||!route.points?.length)return;
+      const initial=clone(spec);
+      const originalVia=(e.via && e.via.length?e.via:route.points.slice(1,-1));
+      if(idx<0||idx>=originalVia.length)return;
+      drag={kind:'bend',id:edgeId,index:idx,original:initial,
+        points:clone(originalVia),moved:false};
+      svg.setPointerCapture(event.pointerId);svg.classList.add('grabbing');
+      return;
+    }
     if(node) {
       const id=node.dataset.nodeId;
       if(mode==='link') {
@@ -382,10 +510,12 @@
         } else {linkStart=null;status('已取消连接。');draw();}
         return;
       }
-      select('node',id);
+      select('node',id,event.ctrlKey||event.metaKey);
+      if(event.ctrlKey||event.metaKey)return;
       const p=point(event);const n=findNode(id);
       drag={kind:'node',id,offsetX:p.x-n.pos[0],offsetY:p.y-n.pos[1],
-        original:clone(spec),initial:[...n.pos],moved:false};
+        original:clone(spec),initial:[...n.pos],moved:false,
+        group:[...selectedNodes].map(i=>({id:i,pos:[...findNode(i).pos]}))};
       svg.setPointerCapture(event.pointerId);svg.classList.add('grabbing');
     } else if(edge) select('edge',edge.dataset.edgeId);
     else {
@@ -396,20 +526,31 @@
   });
   svg.addEventListener('pointermove',(event)=>{
     if(!drag)return;
-    if(drag.kind==='pan') {
+    if(drag.kind==='bend'){
+      const pos=point(event),e=findEdge(drag.id);
+      if(!e)return;
+      const next=[gridPos(pos.x),gridPos(pos.y)];
+      if(e.via?.[drag.index]?.[0]!==next[0]||e.via?.[drag.index]?.[1]!==next[1]){
+        e.via=clone(drag.points);e.via[drag.index]=next;drag.moved=true;draw();
+      }
+    } else if(drag.kind==='pan') {
       const r=svg.getBoundingClientRect();
       camera.x-=(event.clientX-drag.x)*camera.w/r.width;camera.y-=(event.clientY-drag.y)*camera.h/r.height;
       drag.x=event.clientX;drag.y=event.clientY;setCamera();
     } else {
       const p=point(event),n=findNode(drag.id);
       if(!n)return;
-      const x=Math.round(p.x-drag.offsetX),y=Math.round(p.y-drag.offsetY);
-      if(x!==n.pos[0]||y!==n.pos[1]){n.pos=[x,y];drag.moved=true;draw();}
+      const x=gridPos(p.x-drag.offsetX),y=gridPos(p.y-drag.offsetY);
+      if(x!==n.pos[0]||y!==n.pos[1]){
+        const dx=x-drag.initial[0],dy=y-drag.initial[1];
+        for(const item of drag.group){const target=findNode(item.id);if(target)target.pos=[item.pos[0]+dx,item.pos[1]+dy];}
+        drag.moved=true;draw();
+      }
     }
   });
   const endDrag=()=>{
-    if(drag?.kind==='node'&&drag.moved){
-      checkpoint(drag.original);renderInspector();
+    if(drag?.moved&&(drag.kind==='node'||drag.kind==='bend')){
+      checkpoint(drag.original);normalizeScene();renderInspector();
     }
     drag=null;svg.classList.remove('grabbing');
     if (spec) draw();
@@ -421,6 +562,7 @@
   $('add-node').onclick=addNode;$('add-card').onclick=addCard;$('delete').onclick=removeSelected;
   $('zoom-in').onclick=()=>zoom(.82);$('zoom-out').onclick=()=>zoom(1.22);
   $('fit').onclick=()=>{camera=null;frame(true);draw();};
+  document.querySelectorAll('[data-align]').forEach(btn=>btn.onclick=()=>alignSelection(btn.dataset.align));
   $('original').onclick=()=>window.open(new URL('original',location.href),'_blank','noopener');
   $('export').onclick=()=>{
     const blob=new Blob([JSON.stringify(spec,null,2)+'\n'],{type:'application/json'});

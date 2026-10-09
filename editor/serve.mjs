@@ -123,10 +123,11 @@ async function onSave(req, res) {
     temporary = path.join(path.dirname(input), `candidate.editor-${stamp()}.json`);
     fs.writeFileSync(temporary, JSON.stringify(next, null, 2) + '\n', { flag: 'wx' });
     // Gate content and composition BEFORE changing the user's canonical file.
-    const validation = runCli(['validate', 'architecture', temporary, '--quality', 'showcase', '--json']);
+    const quality = next.meta?.quality_profile === 'standard' ? 'standard' : 'showcase';
+    const validation = runCli(['validate', 'architecture', temporary, '--quality', quality, '--json']);
     if (!validation.ok) {
       return json(res, 422, { ok: false, stage: 'validate', message: validation.message,
-        note: '原始 candidate.json 和正式 HTML 未更改；可调整位置后重试，或导出 JSON 草稿。' });
+        note: '原始文件未更改。可调整布局；大型自由排布画布可在右侧把质量档位切为 standard 再保存。' });
     }
     if (hash(fs.readFileSync(input)) !== request.expectedHash) {
       return json(res, 409, { ok: false, message: '在校验期间文件已变化，请先刷新或导出草稿。' });
@@ -138,7 +139,7 @@ async function onSave(req, res) {
     const latestHash = hash(fs.readFileSync(input));
     const receiptFolder = path.join(path.dirname(input), `editor-review-${stamp()}`);
     const finalization = runCli(['finalize', 'architecture', input, output,
-      '--quality', 'showcase', '--out-dir', receiptFolder, '--json']);
+      '--quality', quality, '--out-dir', receiptFolder, '--json']);
     if (!finalization.ok) {
       return json(res, 500, { ok: false, stage: 'finalize', saved: true, expectedHash: latestHash,
         message: 'JSON 已保存，但 HTML 完整交付检查未通过：' + finalization.message,

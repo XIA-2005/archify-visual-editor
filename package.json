@@ -1,6 +1,6 @@
 {
   "name": "archify-visual-editor",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Local visual editing for Archify architecture diagrams with canonical edge routing and validated HTML export.",
   "type": "module",
   "license": "MIT",
@@ -9,8 +9,9 @@
     "node": ">=18"
   },
   "scripts": {
-    "syntax": "node --check editor/serve.mjs && node --check editor/route-preview.mjs && node --check editor/test-editor.mjs",
-    "test": "node editor/test-editor.mjs examples/sample.architecture.json"
+    "syntax": "node --check editor/serve.mjs && node --check editor/route-preview.mjs && node --check editor/test-editor.mjs && node --check editor/test-interaction.mjs",
+    "test": "node editor/test-editor.mjs examples/sample.architecture.json",
+    "test:ui": "node editor/test-interaction.mjs examples/sample.architecture.json"
   },
   "keywords": [
     "archify",
